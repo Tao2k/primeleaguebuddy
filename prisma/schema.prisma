@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TeamRole {
+  LEADER
+  MEMBER
+}
+
+enum LolRole {
+  TOP
+  JUNGLE
+  MID
+  BOT
+  SUPPORT
+  FILL
+}
+
+enum VoteAnswer {
+  YES
+  MAYBE
+  NO
+}
+
+model User {
+  id          String       @id @default(cuid())
+  discordId   String?      @unique
+  name        String
+  avatarUrl   String?
+  riotId      String?
+  mainRole    LolRole?
+  createdAt   DateTime     @default(now())
+  sessions    Session[]
+  memberships Membership[]
+  slots       Slot[]
+  votes       Vote[]
+}
+
+model Session {
+  // SHA-256 hash of the session token; the token itself only lives in the cookie.
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Team {
+  id             String       @id @default(cuid())
+  name           String
+  tag            String?
+  primeLeagueUrl String?
+  inviteCode     String       @unique
+  createdAt      DateTime     @default(now())
+  memberships    Membership[]
+  matchdays      Matchday[]
+  rules          RuleProfile?
+}
+
+model Membership {
+  id       String   @id @default(cuid())
+  userId   String
+  teamId   String
+  role     TeamRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+}
+
+// Scheduling rules of the Prime League rulebook, editable per team so a new
+// split only needs new values, not new code. Times are Europe/Berlin.
+model RuleProfile {
+  id                   String @id @default(cuid())
+  teamId               String @unique
+  // ISO weekdays, 1 = Monday ... 7 = Sunday
+  allowedWeekdays      Int[]  @default([1, 2, 3, 4, 5, 6, 7])
+  // Minutes after midnight
+  earliestStartMinutes Int    @default(1080)
+  latestStartMinutes   Int    @default(1320)
+  minPlayers           Int    @default(5)
+  proposalCount        Int    @default(3)
+  team                 Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+model Matchday {
+  id               String    @id @default(cuid())
+  teamId           String
+  title            String
+  opponentName     String?
+  opponentUrl      String?
+  windowStart      DateTime
+  windowEnd        DateTime
+  proposalDeadline DateTime?
+  confirmedSlotId  String?   @unique
+  createdAt        DateTime  @default(now())
+  team             Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  slots            Slot[]    @relation("MatchdaySlots")
+  confirmedSlot    Slot?     @relation("ConfirmedSlot", fields: [confirmedSlotId], references: [id], onDelete: SetNull)
+
+  @@index([teamId])
+}
+
+model Slot {
+  id          String    @id @default(cuid())
+  matchdayId  String
+  startsAt    DateTime
+  createdById String
+  createdAt   DateTime  @default(now())
+  matchday    Matchday  @relation("MatchdaySlots", fields: [matchdayId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  votes       Vote[]
+  confirmedIn Matchday? @relation("ConfirmedSlot")
+
+  @@unique([matchdayId, startsAt])
+}
+
+model Vote {
+  id     String     @id @default(cuid())
+  slotId String
+  userId String
+  answer VoteAnswer
+  slot   Slot       @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([slotId, userId])
+}
